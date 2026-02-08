@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Havířov Live | Minimalist Dark</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        :root {
+            --bg: #0f172a;
+            --accent: #ef4444;
+            --text: #f8fafc;
+        }
+        body, html { margin: 0; padding: 0; height: 100%; background: var(--bg); font-family: sans-serif; overflow: hidden; }
+        #map { height: 100vh; width: 100%; background: var(--bg); }
+
+        #ui {
+            position: absolute; top: 20px; left: 20px; z-index: 1000;
+            background: rgba(30, 41, 59, 0.8); backdrop-filter: blur(10px);
+            padding: 12px 18px; border-radius: 10px; color: var(--text);
+            border: 1px solid rgba(255,255,255,0.1); pointer-events: none;
+        }
+        .stop-tooltip { 
+            background: #1e293b !important; color: #94a3b8 !important; 
+            border: none !important; font-size: 10px !important; 
+        }
+    </style>
+</head>
+<body>
+
+    <div id="ui">
+        <div style="font-weight: bold; font-size: 14px; color: var(--accent);">HAVÍŘOV LIVE</div>
+        <div id="status" style="font-size: 11px; opacity: 0.7;">Načítám data...</div>
+    </div>
+
+    <div id="map"></div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <script>
+        const map = L.map('map', { zoomControl: false }).setView([49.7788, 18.4273], 14);
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png').addTo(map);
+
+        const busLayer = L.layerGroup().addTo(map);
+        const stopLayer = L.layerGroup().addTo(map);
+
+        // Funkce pro bezpečné stažení dat přes proxy bez nutnosti CORS doplňku
+        async function fetchData(url) {
+            // Používáme spolehlivou CORS proxy
+            const proxyUrl = "https://corsproxy.io/?";
+            const response = await fetch(proxyUrl + encodeURIComponent(url));
+            if (!response.ok) throw new Error("Proxy error");
+            return await response.json();
+        }
+
+        async function init() {
+            try {
+                // Načtení zastávek (jednorázově)
+                const stopData = await fetchData("https://mapapi.kodis.cz/api/v1/stops");
+                stopData.stops.forEach(s => {
+                    if (s.lat > 49.755 && s.lat < 49.805 && s.lon > 18.395 && s.lon < 18.475) {
+                        L.circleMarker([s.lat, s.lon], {
+                            radius: 2, fillColor: "#475569", color: "transparent", fillOpacity: 0.5
+                        }).bindTooltip(s.name, { className: 'stop-tooltip', sticky: true }).addTo(stopLayer);
+                    }
+                });
+                updateVehicles();
+            } catch (e) {
+                document.getElementById('status').innerText = "Chyba načítání zastávek.";
+            }
+        }
+
+        async function updateVehicles() {
+            try {
+                const vehicleData = await fetchData("https://mapapi.kodis.cz/api/v1/vehicles");
+                busLayer.clearLayers();
+                let count = 0;
+
+                vehicleData.vehicles.forEach(v => {
+                    if (v.lat > 49.74 && v.lat < 49.82 && v.lon > 18.38 && v.lon < 18.48) {
+                        count++;
+                        const angle = Math.round(v.bearing / 10) * 10;
+                        const iconUrl = `https://mpvnet.cz/img/a_${angle}.png`;
+
+                        L.marker([v.lat, v.lon], {
+                            icon: L.icon({ iconUrl: iconUrl, iconSize: [26, 26], iconAnchor: [13, 13] })
+                        }).bindPopup(`<b>Linka ${v.lineName}</b><br>${v.direction}`).addTo(busLayer);
+                    }
+                });
+                document.getElementById('status').innerText = `AKTIVNÍ SPOJE: ${count}`;
+            } catch (e) {
+                document.getElementById('status').innerText = "Data o spojích dočasně nedostupná.";
+            }
+        }
+
+        init();
+        setInterval(updateVehicles, 10000);
+    </script>
+</body>
+</html>
